@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,14 +17,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,8 +38,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
@@ -65,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.FactCategory
+import com.example.data.model.KnowledgeSource
 import com.example.data.model.SourceType
 import com.example.ui.components.KnowledgeSourceCard
 import com.example.ui.components.LearnedFactCard
@@ -90,10 +99,27 @@ fun KnowledgeScreen(
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showAddSourceDialog by remember { mutableStateOf(false) }
     var showAddFactDialog by remember { mutableStateOf(false) }
+    var editingSource by remember { mutableStateOf<KnowledgeSource?>(null) }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTypeFilter by remember { mutableStateOf<SourceType?>(null) }
+    var onlyActiveFilter by remember { mutableStateOf(false) }
+
+    val filteredSources = remember(sources, searchQuery, selectedTypeFilter, onlyActiveFilter) {
+        sources.filter { source ->
+            val matchesQuery = searchQuery.isBlank() ||
+                    source.title.contains(searchQuery, ignoreCase = true) ||
+                    source.content.contains(searchQuery, ignoreCase = true)
+            val matchesType = selectedTypeFilter == null || source.sourceType == selectedTypeFilter
+            val matchesActive = !onlyActiveFilter || source.isEnabled
+            matchesQuery && matchesType && matchesActive
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = GemDarkBg,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -187,34 +213,184 @@ fun KnowledgeScreen(
                 border = BorderStroke(1.dp, GemBorder),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AutoAwesome,
+                        imageVector = if (selectedTabIndex == 0) Icons.Default.Storage else Icons.Default.AutoAwesome,
                         contentDescription = null,
-                        tint = GemAccentAmber,
+                        tint = if (selectedTabIndex == 0) GemCyan else GemAccentAmber,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (selectedTabIndex == 0) {
-                            "Gemini uwzględnia aktywne źródła przy każdej odpowiedzi, działając na twoich danych i dokumentach."
-                        } else {
-                            "Asystent automatycznie uczy się twojego słownictwa, humoru i preferencji w trakcie czatu."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFCBD5E1),
-                        lineHeight = 16.sp
-                    )
+                    Column {
+                        Text(
+                            text = if (selectedTabIndex == 0) {
+                                "Lokalna Baza Room: ${sources.count { it.isEnabled }} z ${sources.size} aktywnych"
+                            } else {
+                                "Pamięć Stylu i Komunikacji (${facts.count { it.isActive }} aktywnych)"
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (selectedTabIndex == 0) {
+                                "Aurora AI uwzględnia aktywne źródła z bazy Room przy każdej odpowiedzi, działając na twoich danych."
+                            } else {
+                                "Asystent automatycznie uczy się twojego słownictwa, humoru i preferencji w trakcie rozmów."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFCBD5E1),
+                            lineHeight = 15.sp
+                        )
+                    }
                 }
             }
 
             // Content List
             if (selectedTabIndex == 0) {
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Szukaj w bazie wiedzy...", color = Color(0xFF64748B)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Szukaj",
+                            tint = GemCyan
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Wyczyść wyszukiwanie",
+                                    tint = Color.Gray
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GemCyan,
+                        unfocusedBorderColor = GemBorder,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = GemDarkSurface,
+                        unfocusedContainerColor = GemDarkSurface
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("search_sources_input")
+                )
+
+                // Filter chips
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == null && !onlyActiveFilter,
+                            onClick = {
+                                selectedTypeFilter = null
+                                onlyActiveFilter = false
+                            },
+                            label = { Text("Wszystkie (${sources.size})") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = onlyActiveFilter,
+                            onClick = { onlyActiveFilter = !onlyActiveFilter },
+                            label = { Text("Aktywne (${sources.count { it.isEnabled }})") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == SourceType.TEXT_NOTE,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == SourceType.TEXT_NOTE) null else SourceType.TEXT_NOTE
+                            },
+                            label = { Text("Notatki") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == SourceType.DOCUMENT,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == SourceType.DOCUMENT) null else SourceType.DOCUMENT
+                            },
+                            label = { Text("Dokumenty") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == SourceType.CUSTOM_RULE,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == SourceType.CUSTOM_RULE) null else SourceType.CUSTOM_RULE
+                            },
+                            label = { Text("Reguły") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == SourceType.USER_PROFILE,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == SourceType.USER_PROFILE) null else SourceType.USER_PROFILE
+                            },
+                            label = { Text("Profil") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedTypeFilter == SourceType.URL_REFERENCE,
+                            onClick = {
+                                selectedTypeFilter = if (selectedTypeFilter == SourceType.URL_REFERENCE) null else SourceType.URL_REFERENCE
+                            },
+                            label = { Text("Linki") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GemCyan,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                    }
+                }
+
                 if (sources.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -223,11 +399,37 @@ fun KnowledgeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Brak źródeł wiedzy.\nDotknij '+', aby dodać notatki, fragmenty dokumentów lub reguły postępowania.",
+                            text = "Brak źródeł wiedzy w bazie Room.\nDotknij '+', aby dodać notatki, fragmenty dokumentów lub reguły postępowania.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFF64748B),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
+                    }
+                } else if (filteredSources.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Brak wyników pasujących do filtra.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF64748B)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    searchQuery = ""
+                                    selectedTypeFilter = null
+                                    onlyActiveFilter = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = GemDarkSurfaceElevated, contentColor = GemCyan)
+                            ) {
+                                Text("Wyczyść filtry")
+                            }
+                        }
                     }
                 } else {
                     LazyColumn(
@@ -235,10 +437,11 @@ fun KnowledgeScreen(
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 80.dp, top = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(sources, key = { it.id }) { source ->
+                        items(filteredSources, key = { it.id }) { source ->
                             KnowledgeSourceCard(
                                 source = source,
                                 onToggle = { enabled -> viewModel.toggleKnowledgeSource(source, enabled) },
+                                onEdit = { editingSource = source },
                                 onDelete = { viewModel.deleteKnowledgeSource(source) }
                             )
                         }
@@ -289,6 +492,18 @@ fun KnowledgeScreen(
         )
     }
 
+    // Edit Source Dialog (CRUD Update)
+    editingSource?.let { sourceToEdit ->
+        EditSourceDialog(
+            source = sourceToEdit,
+            onDismiss = { editingSource = null },
+            onConfirm = { updatedTitle, updatedContent, updatedType ->
+                viewModel.updateKnowledgeSource(sourceToEdit.id, updatedTitle, updatedContent, updatedType)
+                editingSource = null
+            }
+        )
+    }
+
     // Add Fact Dialog
     if (showAddFactDialog) {
         AddFactDialog(
@@ -319,7 +534,54 @@ fun AddSourceDialog(
             Text("Dodaj źródło wiedzy", color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Szybki szablon:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF94A3B8)
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                title = "Zasady Komunikacji Asystenta"
+                                selectedType = SourceType.CUSTOM_RULE
+                                content = "Odpowiadaj bezpośrednio, zwięźle i konkretnie. Unikaj zbędnego korporacyjnego lania wody."
+                            },
+                            label = { Text("Reguła stylu", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(labelColor = GemCyan)
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                title = "O Mnie & Moje Preferencje"
+                                selectedType = SourceType.USER_PROFILE
+                                content = "Interesuję się nowymi technologiami, AI oraz programowaniem w Androidzie (Kotlin/Compose)."
+                            },
+                            label = { Text("Profil", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(labelColor = GemCyan)
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = false,
+                            onClick = {
+                                title = "Kontekst Mojego Projektu"
+                                selectedType = SourceType.DOCUMENT
+                                content = "Projekt Aurora AI: inteligentny asystent głosowy działający na urządzeniu z lokalną bazą Room."
+                            },
+                            label = { Text("Dokument", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(labelColor = GemCyan)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -394,7 +656,7 @@ fun AddSourceDialog(
                     value = content,
                     onValueChange = { content = it },
                     label = { Text("Treść wiedzy / tekstu") },
-                    placeholder = { Text("Wklej tutaj treść, którą Gemini ma się kierować...") },
+                    placeholder = { Text("Wklej tutaj treść, którą Aurora AI ma się kierować...") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(140.dp)
@@ -407,6 +669,24 @@ fun AddSourceDialog(
                         unfocusedTextColor = Color.White
                     )
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Zapis do lokalnej bazy Room",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "${content.length} znaków",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (content.isNotBlank()) GemCyan else Color(0xFF64748B),
+                        fontSize = 11.sp
+                    )
+                }
             }
         },
         confirmButton = {
@@ -472,6 +752,7 @@ fun AddFactDialog(
                             FactCategory.VOCABULARY -> "Słownictwo"
                             FactCategory.HUMOR -> "Poczucie humoru"
                             FactCategory.PREFERENCE -> "Osobista preferencja"
+                            FactCategory.SUPPORT_MEMORY -> "Pamięć trybu wsparcia"
                             FactCategory.GENERAL -> "Ogólny fakt"
                         },
                         onValueChange = {},
@@ -501,6 +782,7 @@ fun AddFactDialog(
                                             FactCategory.VOCABULARY -> "Słownictwo"
                                             FactCategory.HUMOR -> "Poczucie humoru"
                                             FactCategory.PREFERENCE -> "Osobista preferencja"
+                                            FactCategory.SUPPORT_MEMORY -> "Pamięć trybu wsparcia"
                                             FactCategory.GENERAL -> "Ogólny fakt"
                                         },
                                         color = Color.White
@@ -524,6 +806,149 @@ fun AddFactDialog(
                 modifier = Modifier.testTag("dialog_fact_confirm")
             ) {
                 Text("Zapamiętaj", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Anuluj", color = Color(0xFF94A3B8))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditSourceDialog(
+    source: KnowledgeSource,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, content: String, type: SourceType) -> Unit
+) {
+    var title by remember { mutableStateOf(source.title) }
+    var content by remember { mutableStateOf(source.content) }
+    var selectedType by remember { mutableStateOf(source.sourceType) }
+    var typeDropdownExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = GemDarkSurface,
+        title = {
+            Text("Edytuj źródło wiedzy", color = Color.White, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Tytuł źródła") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_edit_source_title"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GemCyan,
+                        unfocusedBorderColor = GemBorder,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                // Type selector
+                ExposedDropdownMenuBox(
+                    expanded = typeDropdownExpanded,
+                    onExpandedChange = { typeDropdownExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = when (selectedType) {
+                            SourceType.TEXT_NOTE -> "Notatka tekstowa"
+                            SourceType.DOCUMENT -> "Dokument / Podręcznik"
+                            SourceType.URL_REFERENCE -> "Źródło WWW / Link"
+                            SourceType.USER_PROFILE -> "Profil Użytkownika"
+                            SourceType.CUSTOM_RULE -> "Reguła postępowania"
+                        },
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeDropdownExpanded) },
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GemCyan,
+                            unfocusedBorderColor = GemBorder,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
+                    )
+                    ExposedDropdownMenu(
+                        expanded = typeDropdownExpanded,
+                        onDismissRequest = { typeDropdownExpanded = false },
+                        containerColor = GemDarkSurfaceElevated
+                    ) {
+                        SourceType.entries.forEach { type ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        when (type) {
+                                            SourceType.TEXT_NOTE -> "Notatka tekstowa"
+                                            SourceType.DOCUMENT -> "Dokument / Podręcznik"
+                                            SourceType.URL_REFERENCE -> "Źródło WWW / Link"
+                                            SourceType.USER_PROFILE -> "Profil Użytkownika"
+                                            SourceType.CUSTOM_RULE -> "Reguła postępowania"
+                                        },
+                                        color = Color.White
+                                    )
+                                },
+                                onClick = {
+                                    selectedType = type
+                                    typeDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text("Treść wiedzy / tekstu") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .testTag("dialog_edit_source_content"),
+                    maxLines = 8,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GemCyan,
+                        unfocusedBorderColor = GemBorder,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Aktualizacja w bazie Room",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B),
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "${content.length} znaków",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (content.isNotBlank()) GemCyan else Color(0xFF64748B),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(title, content, selectedType) },
+                enabled = title.isNotBlank() && content.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = GemCyan, contentColor = Color.Black),
+                modifier = Modifier.testTag("dialog_edit_source_confirm")
+            ) {
+                Text("Zaktualizuj", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

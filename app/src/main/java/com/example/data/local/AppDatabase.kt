@@ -42,11 +42,12 @@ class Converters {
         ChatSessionEntity::class,
         ChatMessageEntity::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun knowledgeSourceDao(): KnowledgeSourceDao
     abstract fun knowledgeDao(): KnowledgeDao
     abstract fun chatDao(): ChatDao
 
@@ -56,15 +57,26 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "gemini_live_ai_database"
-                )
-                    .fallbackToDestructiveMigration(dropAllTables = true)
-                    .build()
-                INSTANCE = instance
-                instance
+                val db = try {
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java,
+                        "aurora_ai_database"
+                    )
+                        .fallbackToDestructiveMigration(dropAllTables = true)
+                        .build()
+                } catch (e: Exception) {
+                    context.deleteDatabase("aurora_ai_database")
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java,
+                        "aurora_ai_database"
+                    )
+                        .fallbackToDestructiveMigration(dropAllTables = true)
+                        .build()
+                }
+                INSTANCE = db
+                db
             }
         }
     }

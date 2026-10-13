@@ -18,4 +18,18 @@ class ExampleRobolectricTest {
     val appName = context.getString(R.string.app_name)
     assertEquals("Aurora AI", appName)
   }
+
+  @Test
+  fun `verify RECORD_AUDIO permission is present in manifest`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val packageInfo = context.packageManager.getPackageInfo(
+      context.packageName,
+      android.content.pm.PackageManager.GET_PERMISSIONS
+    )
+    val permissions = packageInfo.requestedPermissions ?: emptyArray()
+    org.junit.Assert.assertTrue(
+      "RECORD_AUDIO permission must be declared in AndroidManifest.xml",
+      permissions.contains(android.Manifest.permission.RECORD_AUDIO)
+    )
+  }
 }

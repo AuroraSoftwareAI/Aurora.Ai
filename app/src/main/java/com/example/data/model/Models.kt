@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
@@ -12,7 +13,17 @@ enum class SourceType {
     CUSTOM_RULE
 }
 
-@Entity(tableName = "knowledge_sources")
+/**
+ * Room Entity for storing user-defined knowledge base entries locally.
+ */
+@Entity(
+    tableName = "knowledge_sources",
+    indices = [
+        Index(value = ["sourceType"]),
+        Index(value = ["isEnabled"]),
+        Index(value = ["createdAt"])
+    ]
+)
 data class KnowledgeSource(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -21,18 +32,35 @@ data class KnowledgeSource(
     val sourceType: SourceType = SourceType.TEXT_NOTE,
     val isEnabled: Boolean = true,
     val summary: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )
+
+enum class AuroraMode {
+    FREE,
+    SUPPORT
+}
 
 enum class FactCategory {
     STYLE,
     VOCABULARY,
     HUMOR,
     PREFERENCE,
+    SUPPORT_MEMORY,
     GENERAL
 }
 
-@Entity(tableName = "learned_facts")
+/**
+ * Room Entity for storing dynamically learned user communication style facts locally.
+ */
+@Entity(
+    tableName = "learned_facts",
+    indices = [
+        Index(value = ["category"]),
+        Index(value = ["isActive"]),
+        Index(value = ["timestamp"])
+    ]
+)
 data class LearnedFact(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -42,7 +70,15 @@ data class LearnedFact(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "chat_sessions")
+/**
+ * Room Entity for storing user conversation sessions locally.
+ */
+@Entity(
+    tableName = "chat_sessions",
+    indices = [
+        Index(value = ["lastMessageAt"])
+    ]
+)
 data class ChatSessionEntity(
     @PrimaryKey
     val sessionId: String = UUID.randomUUID().toString(),
@@ -51,7 +87,17 @@ data class ChatSessionEntity(
     val lastMessageAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "chat_messages")
+/**
+ * Room Entity for storing user conversation messages locally.
+ */
+@Entity(
+    tableName = "chat_messages",
+    indices = [
+        Index(value = ["sessionId"]),
+        Index(value = ["sessionId", "timestamp"]),
+        Index(value = ["timestamp"])
+    ]
+)
 data class ChatMessageEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,

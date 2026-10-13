@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Rule
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Psychology
@@ -53,6 +55,7 @@ import com.example.ui.theme.GemViolet
 fun KnowledgeSourceCard(
     source: KnowledgeSource,
     onToggle: (Boolean) -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -112,6 +115,19 @@ fun KnowledgeSourceCard(
                         ),
                         modifier = Modifier.testTag("source_switch_${source.id}")
                     )
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("source_edit_${source.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edytuj źródło",
+                            tint = GemCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                     IconButton(
                         onClick = onDelete,
                         modifier = Modifier
@@ -196,6 +212,7 @@ fun LearnedFactCard(
                     FactCategory.VOCABULARY -> Icons.Default.Description
                     FactCategory.HUMOR -> Icons.Default.Lightbulb
                     FactCategory.PREFERENCE -> Icons.Default.Psychology
+                    FactCategory.SUPPORT_MEMORY -> Icons.Default.Favorite
                     FactCategory.GENERAL -> Icons.Default.Lightbulb
                 }
                 Icon(
@@ -218,6 +235,7 @@ fun LearnedFactCard(
                             FactCategory.VOCABULARY -> "Słownictwo"
                             FactCategory.HUMOR -> "Humor i dowcip"
                             FactCategory.PREFERENCE -> "Osobista preferencja"
+                            FactCategory.SUPPORT_MEMORY -> "Pamięć trybu wsparcia"
                             FactCategory.GENERAL -> "Fakt o użytkowniku"
                         },
                         style = MaterialTheme.typography.labelSmall,

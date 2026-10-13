@@ -55,4 +55,16 @@ interface KnowledgeDao {
 
     @Query("UPDATE learned_facts SET isActive = :active WHERE id = :id")
     suspend fun setFactActive(id: Long, active: Boolean)
+
+    @Query("SELECT * FROM learned_facts WHERE category = :category AND isActive = 1")
+    suspend fun getFactsByCategory(category: FactCategory): List<LearnedFact>
+
+    @Query("SELECT * FROM learned_facts WHERE category != :category AND isActive = 1")
+    suspend fun getFactsExcludingCategory(category: FactCategory): List<LearnedFact>
+
+    @Query("SELECT * FROM learned_facts WHERE category = :category ORDER BY timestamp DESC")
+    fun getFactsByCategoryFlow(category: FactCategory): Flow<List<LearnedFact>>
+
+    @Query("DELETE FROM learned_facts WHERE category = :category")
+    suspend fun clearFactsByCategory(category: FactCategory)
 }

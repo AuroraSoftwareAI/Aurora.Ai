@@ -1,11 +1,15 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import com.example.data.model.AuroraMode
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +42,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.core.content.ContextCompat
+import com.example.R
+import com.example.ui.components.AudioPermissionMissingBanner
+import com.example.ui.components.AudioPermissionRationaleDialog
+import com.example.ui.components.rememberAudioPermissionState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -78,7 +90,18 @@ fun LiveVoiceScreen(
     val subtitle by viewModel.liveSubtitle.collectAsState()
     val amplitude by viewModel.speechAmplitude.collectAsState()
     val handsFree by viewModel.handsFreeLoop.collectAsState()
+    val activeMode by viewModel.activeMode.collectAsState()
     val personaSettings by viewModel.personaSettings.collectAsState()
+
+    val permissionState = rememberAudioPermissionState(
+        onPermissionGranted = {
+            viewModel.startLiveListening()
+        }
+    )
+
+    AudioPermissionRationaleDialog(permissionState = permissionState)
+
+    val hasAudioPermission = permissionState.hasPermission()
 
     Box(
         modifier = modifier
@@ -123,35 +146,48 @@ fun LiveVoiceScreen(
                     )
                 }
 
-                // Live indicator badge
+                // Live indicator badge with active mode (Free Mode / Support Mode)
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = GemDarkSurfaceElevated,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GemCyan.copy(alpha = 0.5f))
+                    color = if (activeMode == AuroraMode.SUPPORT) Color(0xFF064E3B).copy(alpha = 0.8f) else GemDarkSurfaceElevated,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (activeMode == AuroraMode.SUPPORT) Color(0xFF10B981) else GemCyan.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .clickable { viewModel.toggleMode() }
+                        .testTag("live_mode_toggle_badge")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.aurora_logo),
+                            contentDescription = "Aurora Logo",
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Box(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    when (orbState) {
-                                        VoiceOrbState.LISTENING -> GemLivePulse
-                                        VoiceOrbState.THINKING -> GemAccentAmber
-                                        VoiceOrbState.SPEAKING -> GemCyan
-                                        VoiceOrbState.IDLE -> Color.Gray
+                                    when {
+                                        !hasAudioPermission -> Color(0xFFEF4444)
+                                        orbState == VoiceOrbState.LISTENING -> if (activeMode == AuroraMode.SUPPORT) Color(0xFF34D399) else GemLivePulse
+                                        orbState == VoiceOrbState.THINKING -> GemAccentAmber
+                                        orbState == VoiceOrbState.SPEAKING -> GemCyan
+                                        else -> Color.Gray
                                     }
                                 )
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "AURORA LIVE",
+                            text = if (activeMode == AuroraMode.SUPPORT) "WSPARCIE" else "LIVE",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = if (activeMode == AuroraMode.SUPPORT) Color(0xFF6EE7B7) else Color.White,
                             letterSpacing = 1.sp
                         )
                     }
@@ -173,7 +209,16 @@ fun LiveVoiceScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Microphone permission missing banner if not granted
+            if (!hasAudioPermission) {
+                AudioPermissionMissingBanner(
+                    onRequestPermission = { permissionState.requestPermission() },
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Center Dynamic Visualizer Orb
             Column(
@@ -182,52 +227,66 @@ fun LiveVoiceScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .clickable { viewModel.toggleLiveListening() }
+                        .clickable {
+                            if (hasAudioPermission) {
+                                viewModel.toggleLiveListening()
+                            } else {
+                                permissionState.requestPermission()
+                            }
+                        }
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     VoiceVisualizerOrb(
-                        state = orbState,
-                        amplitude = amplitude,
+                        state = if (!hasAudioPermission) VoiceOrbState.IDLE else orbState,
+                        amplitude = if (!hasAudioPermission) 0f else amplitude,
                         size = 230.dp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Orb state message
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = GemDarkSurfaceVariant.copy(alpha = 0.8f)
+                    color = GemDarkSurfaceVariant.copy(alpha = 0.8f),
+                    modifier = Modifier.clickable {
+                        if (!hasAudioPermission) {
+                            permissionState.requestPermission()
+                        }
+                    }
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        val stateIcon = when (orbState) {
-                            VoiceOrbState.LISTENING -> Icons.Default.Hearing
-                            VoiceOrbState.THINKING -> Icons.Default.Sync
-                            VoiceOrbState.SPEAKING -> Icons.Default.RecordVoiceOver
-                            VoiceOrbState.IDLE -> Icons.Default.Mic
+                        val stateIcon = when {
+                            !hasAudioPermission -> Icons.Default.MicOff
+                            orbState == VoiceOrbState.LISTENING -> Icons.Default.Hearing
+                            orbState == VoiceOrbState.THINKING -> Icons.Default.Sync
+                            orbState == VoiceOrbState.SPEAKING -> Icons.Default.RecordVoiceOver
+                            else -> Icons.Default.Mic
                         }
                         Icon(
                             imageVector = stateIcon,
                             contentDescription = null,
-                            tint = when (orbState) {
-                                VoiceOrbState.LISTENING -> GemLivePulse
-                                VoiceOrbState.THINKING -> GemAccentAmber
-                                VoiceOrbState.SPEAKING -> GemCyan
-                                VoiceOrbState.IDLE -> Color.White
+                            tint = when {
+                                !hasAudioPermission -> Color(0xFFEF4444)
+                                orbState == VoiceOrbState.LISTENING -> GemLivePulse
+                                orbState == VoiceOrbState.THINKING -> GemAccentAmber
+                                orbState == VoiceOrbState.SPEAKING -> GemCyan
+                                else -> Color.White
                             },
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = when (orbState) {
-                                VoiceOrbState.LISTENING -> "Słucham... Mów teraz"
-                                VoiceOrbState.THINKING -> "Aurora analizuje i myśli..."
-                                VoiceOrbState.SPEAKING -> "Aurora odpowiada..."
-                                VoiceOrbState.IDLE -> "Dotknij kuli, aby zacząć"
+                            text = when {
+                                !hasAudioPermission -> "Wymagane uprawnienie do mikrofonu (kliknij)"
+                                orbState == VoiceOrbState.LISTENING -> "Słucham... Mów teraz"
+                                orbState == VoiceOrbState.THINKING -> "Aurora analizuje i myśli..."
+                                orbState == VoiceOrbState.SPEAKING -> "Aurora odpowiada..."
+                                else -> "Dotknij kuli, aby zacząć"
                             },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Medium,
@@ -328,17 +387,27 @@ fun LiveVoiceScreen(
                     // Main Mic Action Button
                     Surface(
                         shape = CircleShape,
-                        color = if (orbState == VoiceOrbState.LISTENING) GemLivePulse else GemCyan,
+                        color = when {
+                            !hasAudioPermission -> Color(0xFFEF4444)
+                            orbState == VoiceOrbState.LISTENING -> GemLivePulse
+                            else -> GemCyan
+                        },
                         shadowElevation = 8.dp,
                         modifier = Modifier
                             .size(72.dp)
-                            .clickable { viewModel.toggleLiveListening() }
+                            .clickable {
+                                if (hasAudioPermission) {
+                                    viewModel.toggleLiveListening()
+                                } else {
+                                    permissionState.requestPermission()
+                                }
+                            }
                             .testTag("live_mic_action_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = if (orbState == VoiceOrbState.LISTENING) Icons.Default.Mic else Icons.Default.MicOff,
-                                contentDescription = if (orbState == VoiceOrbState.LISTENING) "Wyłącz mikrofon" else "Włącz mikrofon",
+                                imageVector = if (hasAudioPermission && orbState == VoiceOrbState.LISTENING) Icons.Default.Mic else Icons.Default.MicOff,
+                                contentDescription = if (hasAudioPermission && orbState == VoiceOrbState.LISTENING) "Wyłącz mikrofon" else "Włącz mikrofon",
                                 tint = Color.Black,
                                 modifier = Modifier.size(32.dp)
                             )
@@ -362,7 +431,7 @@ fun LiveVoiceScreen(
                                 fontSize = 9.sp
                             )
                             Text(
-                                text = if (personaSettings.selectedModel.contains("pro")) "Pro" else "3.5 Flash",
+                                text = if (personaSettings.selectedModel.contains("pro")) "Pro" else "Flash Lite",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = GemCyan,

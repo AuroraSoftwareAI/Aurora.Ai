@@ -7,11 +7,16 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.ChatMessageEntity
 import com.example.data.model.ChatSessionEntity
 import com.example.data.model.FactCategory
+import com.example.data.model.AuroraMode
 import com.example.data.model.KnowledgeSource
 import com.example.data.model.LearnedFact
 import com.example.data.model.SourceType
+import com.example.data.remote.ApiDiagnosticResult
+import com.example.data.remote.ApiDiagnosticStatus
 import com.example.data.remote.GeminiRepository
 import com.example.data.remote.PersonaSettings
+import com.example.data.repository.ChatRepository
+import com.example.data.repository.KnowledgeSourceRepository
 import com.example.ui.components.VoiceOrbState
 import com.example.voice.SpeechRecognizerManager
 import com.example.voice.TextToSpeechManager
@@ -20,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -29,7 +35,10 @@ import java.util.UUID
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val chatDao = database.chatDao()
+    val chatRepository = ChatRepository(chatDao)
     private val knowledgeDao = database.knowledgeDao()
+    private val knowledgeSourceDao = database.knowledgeSourceDao()
+    val knowledgeSourceRepository = KnowledgeSourceRepository(knowledgeSourceDao)
     private val geminiRepo = GeminiRepository(knowledgeDao)
 
     val ttsManager = TextToSpeechManager(application)
@@ -39,18 +48,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentSessionId = MutableStateFlow(UUID.randomUUID().toString())
     val currentSessionId: StateFlow<String> = _currentSessionId.asStateFlow()
 
-    val sessions: StateFlow<List<ChatSessionEntity>> = chatDao.getAllSessions()
+    val sessions: StateFlow<List<ChatSessionEntity>> = chatRepository.allSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val messages: StateFlow<List<ChatMessageEntity>> = _currentSessionId.flatMapLatest { id ->
-        chatDao.getMessagesForSession(id)
+        chatRepository.getMessagesForSession(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val knowledgeSources: StateFlow<List<KnowledgeSource>> = knowledgeDao.getAllSources()
+    val knowledgeSources: StateFlow<List<KnowledgeSource>> = knowledgeSourceRepository.allSources
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val learnedFacts: StateFlow<List<LearnedFact>> = knowledgeDao.getAllFacts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val supportMemories: StateFlow<List<LearnedFact>> = knowledgeDao.getFactsByCategoryFlow(FactCategory.SUPPORT_MEMORY)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Active mode: Free Mode (default) vs Support Mode
+    private val _activeMode = MutableStateFlow(AuroraMode.FREE)
+    val activeMode: StateFlow<AuroraMode> = _activeMode.asStateFlow()
 
     // Persona settings
     private val _personaSettings = MutableStateFlow(PersonaSettings())
@@ -77,6 +93,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    private val _apiDiagnosticResult = MutableStateFlow<ApiDiagnosticResult?>(null)
+    val apiDiagnosticResult: StateFlow<ApiDiagnosticResult?> = _apiDiagnosticResult.asStateFlow()
+
+    private val _isTestingApi = MutableStateFlow(false)
+    val isTestingApi: StateFlow<Boolean> = _isTestingApi.asStateFlow()
 
     val speechAmplitude: StateFlow<Float>
 
@@ -124,6 +146,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Listen to speech manager errors (e.g. microphone permission denied)
+        viewModelScope.launch {
+            speechManager.errorMessage.collect { err ->
+                err?.let {
+                    _errorMessage.value = it
+                    _voiceOrbState.value = VoiceOrbState.IDLE
+                    if (_isLiveModeOpen.value) {
+                        _liveSubtitle.value = it
+                    }
+                }
+            }
+        }
+
         seedInitialDataIfEmpty()
     }
 
@@ -167,13 +202,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            // Ensure current session exists
-            chatDao.insertSession(
-                ChatSessionEntity(
-                    sessionId = _currentSessionId.value,
-                    title = "Rozmowa z Aurora AI"
+            // Ensure current session exists or select existing one
+            val existingSessions = chatRepository.allSessions.first()
+            if (existingSessions.isNotEmpty()) {
+                _currentSessionId.value = existingSessions.first().sessionId
+            } else {
+                chatRepository.insertSession(
+                    ChatSessionEntity(
+                        sessionId = _currentSessionId.value,
+                        title = "Rozmowa z Aurora AI"
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -245,15 +285,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 content = trimmed,
                 isVoice = isVoice
             )
-            chatDao.insertMessage(userMsg)
-            chatDao.updateSessionTimestamp(sId, System.currentTimeMillis())
+            chatRepository.insertMessage(userMsg)
+            chatRepository.updateSessionTimestamp(sId, System.currentTimeMillis())
+
+            // Update session title on first message if generic
+            val currentSession = chatRepository.getSession(sId)
+            if (currentSession != null && (currentSession.title.startsWith("Rozmowa") || currentSession.title == "Nowa rozmowa")) {
+                val cleanTitle = trimmed.take(28).let { if (trimmed.length > 28) "$it..." else it }
+                chatRepository.updateSessionTitle(sId, cleanTitle)
+            }
 
             // 2. Prepare past context
-            val historyEntities = chatDao.getRecentMessages(sId, limit = 12).reversed()
+            val historyEntities = chatRepository.getRecentMessages(sId, limit = 12).reversed()
             val historyPairs = historyEntities.map { it.role to it.content }
 
             // 3. Request Gemini
-            val result = geminiRepo.generateResponse(historyPairs, _personaSettings.value)
+            val result = geminiRepo.generateResponse(historyPairs, _personaSettings.value, _activeMode.value)
 
             result.onSuccess { responseText ->
                 val aiMsg = ChatMessageEntity(
@@ -262,8 +309,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     content = responseText,
                     isVoice = isVoice
                 )
-                val newId = chatDao.insertMessage(aiMsg)
-                chatDao.updateSessionTimestamp(sId, System.currentTimeMillis())
+                val newId = chatRepository.insertMessage(aiMsg)
+                chatRepository.updateSessionTimestamp(sId, System.currentTimeMillis())
 
                 _isGenerating.value = false
 
@@ -300,7 +347,58 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun clearChat() {
         viewModelScope.launch {
             ttsManager.stop()
-            chatDao.clearMessagesForSession(_currentSessionId.value)
+            chatRepository.clearMessagesForSession(_currentSessionId.value)
+        }
+    }
+
+    fun deleteMessage(messageId: Long) {
+        viewModelScope.launch {
+            if (_speakingMessageId.value == messageId) {
+                ttsManager.stop()
+                _speakingMessageId.value = null
+            }
+            chatRepository.deleteMessageById(messageId)
+        }
+    }
+
+    fun regenerateLastResponse() {
+        if (_isGenerating.value) return
+        val currentMsgs = messages.value
+        val lastUserMsg = currentMsgs.lastOrNull { it.role == "user" } ?: return
+        viewModelScope.launch {
+            ttsManager.stop()
+            _speakingMessageId.value = null
+            val lastMsg = currentMsgs.lastOrNull()
+            if (lastMsg?.role == "model") {
+                chatRepository.deleteMessageById(lastMsg.id)
+            }
+
+            val sId = _currentSessionId.value
+            _isGenerating.value = true
+            _voiceOrbState.value = VoiceOrbState.THINKING
+            _errorMessage.value = null
+
+            val historyEntities = chatRepository.getRecentMessages(sId, limit = 12).reversed()
+            val historyPairs = historyEntities.map { it.role to it.content }
+
+            val result = geminiRepo.generateResponse(historyPairs, _personaSettings.value, _activeMode.value)
+            result.onSuccess { responseText ->
+                val aiMsg = ChatMessageEntity(
+                    sessionId = sId,
+                    role = "model",
+                    content = responseText,
+                    isVoice = false
+                )
+                chatRepository.insertMessage(aiMsg)
+                chatRepository.updateSessionTimestamp(sId, System.currentTimeMillis())
+                _isGenerating.value = false
+                _voiceOrbState.value = VoiceOrbState.IDLE
+            }.onFailure { err ->
+                _isGenerating.value = false
+                _voiceOrbState.value = VoiceOrbState.IDLE
+                val errText = err.message ?: "Wystąpił błąd podczas regenerowania odpowiedzi."
+                _errorMessage.value = errText
+            }
         }
     }
 
@@ -308,7 +406,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             ttsManager.stop()
             val newId = UUID.randomUUID().toString()
-            chatDao.insertSession(
+            chatRepository.insertSession(
                 ChatSessionEntity(
                     sessionId = newId,
                     title = "Rozmowa ${System.currentTimeMillis() % 10000}"
@@ -323,11 +421,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _currentSessionId.value = sessionId
     }
 
-    // Knowledge source management
+    fun deleteSession(sessionId: String) {
+        viewModelScope.launch {
+            ttsManager.stop()
+            chatRepository.deleteSessionWithMessages(sessionId)
+            val remaining = chatRepository.allSessions.first()
+            if (_currentSessionId.value == sessionId) {
+                if (remaining.isNotEmpty()) {
+                    _currentSessionId.value = remaining.first().sessionId
+                } else {
+                    startNewSession()
+                }
+            }
+        }
+    }
+
+    fun renameSession(sessionId: String, newTitle: String) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch {
+            chatRepository.updateSessionTitle(sessionId, newTitle.trim())
+        }
+    }
+
+    // Knowledge source management (CRUD)
     fun addKnowledgeSource(title: String, content: String, type: SourceType) {
         if (title.isBlank() || content.isBlank()) return
         viewModelScope.launch {
-            knowledgeDao.insertSource(
+            knowledgeSourceRepository.insertSource(
                 KnowledgeSource(
                     title = title.trim(),
                     content = content.trim(),
@@ -338,15 +458,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateKnowledgeSource(id: Long, title: String, content: String, type: SourceType) {
+        if (title.isBlank() || content.isBlank()) return
+        viewModelScope.launch {
+            knowledgeSourceRepository.updateSourceContent(
+                id = id,
+                title = title.trim(),
+                content = content.trim(),
+                sourceType = type
+            )
+        }
+    }
+
     fun toggleKnowledgeSource(source: KnowledgeSource, enabled: Boolean) {
         viewModelScope.launch {
-            knowledgeDao.setSourceEnabled(source.id, enabled)
+            knowledgeSourceRepository.setSourceEnabled(source.id, enabled)
         }
     }
 
     fun deleteKnowledgeSource(source: KnowledgeSource) {
         viewModelScope.launch {
-            knowledgeDao.deleteSource(source)
+            knowledgeSourceRepository.deleteSource(source)
         }
     }
 
@@ -396,6 +528,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         _errorMessage.value = null
+    }
+
+    fun runApiDiagnostics() {
+        viewModelScope.launch {
+            _isTestingApi.value = true
+            try {
+                val result = geminiRepo.testConnection(_personaSettings.value.selectedModel)
+                _apiDiagnosticResult.value = result
+            } catch (e: Exception) {
+                _apiDiagnosticResult.value = ApiDiagnosticResult(
+                    isSuccess = false,
+                    status = ApiDiagnosticStatus.NETWORK_ERROR,
+                    httpCode = null,
+                    modelTested = _personaSettings.value.selectedModel,
+                    latencyMs = 0L,
+                    headline = "Błąd wykonania diagnostyki",
+                    details = e.localizedMessage ?: "Wystąpił nieoczekiwany błąd"
+                )
+            } finally {
+                _isTestingApi.value = false
+            }
+        }
+    }
+
+    fun clearApiDiagnostics() {
+        _apiDiagnosticResult.value = null
+    }
+
+    fun setMode(mode: AuroraMode) {
+        _activeMode.value = mode
+    }
+
+    fun toggleMode() {
+        _activeMode.value = if (_activeMode.value == AuroraMode.FREE) AuroraMode.SUPPORT else AuroraMode.FREE
+    }
+
+    fun saveSupportMemoryWithConsent(memoryText: String) {
+        if (memoryText.isBlank()) return
+        viewModelScope.launch {
+            knowledgeDao.insertFact(
+                LearnedFact(
+                    fact = memoryText.trim(),
+                    category = FactCategory.SUPPORT_MEMORY,
+                    isActive = true
+                )
+            )
+        }
+    }
+
+    fun clearAllSupportMemories() {
+        viewModelScope.launch {
+            knowledgeDao.clearFactsByCategory(FactCategory.SUPPORT_MEMORY)
+        }
     }
 
     override fun onCleared() {

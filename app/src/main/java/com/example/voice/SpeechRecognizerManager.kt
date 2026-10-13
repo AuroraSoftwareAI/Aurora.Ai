@@ -50,6 +50,16 @@ class SpeechRecognizerManager(
             return
         }
 
+        val hasAudioPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!hasAudioPermission) {
+            _errorMessage.value = "Brak uprawnień do mikrofonu. Przyznaj uprawnienie, aby korzystać z Live Voice."
+            return
+        }
+
         try {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                 setRecognitionListener(object : RecognitionListener {

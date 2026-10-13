@@ -53,24 +53,24 @@ fun MainApp(viewModel: ChatViewModel) {
     val isLiveModeOpen by viewModel.isLiveModeOpen.collectAsState()
     val context = LocalContext.current
 
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+    val audioPermissionState = com.example.ui.components.rememberAudioPermissionState(
+        onPermissionGranted = {
             viewModel.setLiveModeOpen(true)
         }
-    }
+    )
 
     fun openLiveModeWithPermission() {
-        val hasAudio = ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasAudio) {
-            viewModel.setLiveModeOpen(true)
-        } else {
-            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-        }
+        audioPermissionState.requestPermission()
+    }
+
+    com.example.ui.components.AudioPermissionRationaleDialog(permissionState = audioPermissionState)
+
+    BackHandler(enabled = isLiveModeOpen) {
+        viewModel.setLiveModeOpen(false)
+    }
+
+    BackHandler(enabled = !isLiveModeOpen && selectedTab != 0) {
+        selectedTab = 0
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

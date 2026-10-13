@@ -1,10 +1,12 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,19 +20,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Shield
+import com.example.data.model.AuroraMode
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +47,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,7 +56,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.BuildConfig
 import com.example.ui.theme.GemAccentAmber
 import com.example.ui.theme.GemBorder
 import com.example.ui.theme.GemCyan
@@ -71,14 +73,15 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val personaSettings by viewModel.personaSettings.collectAsState()
+    val activeMode by viewModel.activeMode.collectAsState()
+    val supportMemories by viewModel.supportMemories.collectAsState()
     val speechRate by viewModel.ttsManager.speechRate.collectAsState()
     val pitch by viewModel.ttsManager.pitch.collectAsState()
-
-    val isKeyConfigured = BuildConfig.GEMINI_API_KEY.isNotBlank() && BuildConfig.GEMINI_API_KEY != "MY_GEMINI_API_KEY"
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = GemDarkBg,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -110,40 +113,6 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // API Key Status Card
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = GemDarkSurfaceElevated),
-                border = BorderStroke(1.dp, if (isKeyConfigured) GemLivePulse.copy(alpha = 0.5f) else GemAccentAmber.copy(alpha = 0.6f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isKeyConfigured) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = if (isKeyConfigured) GemLivePulse else GemAccentAmber,
-                        modifier = Modifier.size(26.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = if (isKeyConfigured) "Google Gemini API aktywne" else "Klucz API: Wymaga konfiguracji",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = if (isKeyConfigured) "Klucz został pomyślnie załadowany z konfiguracji Secrets." else "Dodaj swój klucz w panelu Secrets w AI Studio jako GEMINI_API_KEY.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFCBD5E1),
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-            }
-
             // Persona & Humor Section
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -260,56 +229,189 @@ fun SettingsScreen(
                 }
             }
 
-            // Model Selection
+            // Mode Selection: Free Mode vs Support Mode
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = GemDarkSurfaceElevated),
-                border = BorderStroke(1.dp, GemBorder)
+                border = BorderStroke(1.dp, GemBorder),
+                modifier = Modifier.testTag("mode_selection_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.AutoAwesome,
+                            imageVector = Icons.Default.Shield,
                             contentDescription = null,
                             tint = GemCyan,
                             modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Model Gemini",
+                            text = "Tryby Działania Asystenta",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Aurora operuje w dwóch trybach z twardą izolacją kontekstu i pamięci. Ty decydujesz, w jakim trybie rozmawiasz.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp
+                    )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = personaSettings.selectedModel == "gemini-3.5-flash",
-                            onClick = { viewModel.updatePersonaSettings(model = "gemini-3.5-flash") },
-                            label = { Text("Gemini 3.5 Flash (Szybki)") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = GemCyan,
-                                selectedLabelColor = Color.Black,
-                                containerColor = GemDarkBg,
-                                labelColor = Color.White
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Mode switch buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Free Mode button
+                        OutlinedButton(
+                            onClick = { viewModel.setMode(AuroraMode.FREE) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (activeMode == AuroraMode.FREE) GemCyan.copy(alpha = 0.2f) else Color.Transparent,
+                                contentColor = if (activeMode == AuroraMode.FREE) GemCyan else Color(0xFF94A3B8)
                             ),
-                            modifier = Modifier.testTag("model_flash_chip")
-                        )
-                        FilterChip(
-                            selected = personaSettings.selectedModel == "gemini-3.1-pro-preview",
-                            onClick = { viewModel.updatePersonaSettings(model = "gemini-3.1-pro-preview") },
-                            label = { Text("Gemini 3.1 Pro (Głęboki)") },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = GemViolet,
-                                selectedLabelColor = Color.White,
-                                containerColor = GemDarkBg,
-                                labelColor = Color.White
+                            border = BorderStroke(1.dp, if (activeMode == AuroraMode.FREE) GemCyan else GemBorder),
+                            modifier = Modifier.weight(1f).testTag("select_free_mode")
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Tryb Swobodny", fontWeight = FontWeight.Bold)
+                                }
+                                Text("Codzienny, humor, hobby", fontSize = 10.sp, color = Color(0xFFCBD5E1))
+                            }
+                        }
+
+                        // Support Mode button
+                        OutlinedButton(
+                            onClick = { viewModel.setMode(AuroraMode.SUPPORT) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (activeMode == AuroraMode.SUPPORT) Color(0xFF10B981).copy(alpha = 0.2f) else Color.Transparent,
+                                contentColor = if (activeMode == AuroraMode.SUPPORT) Color(0xFF34D399) else Color(0xFF94A3B8)
                             ),
-                            modifier = Modifier.testTag("model_pro_chip")
+                            border = BorderStroke(1.dp, if (activeMode == AuroraMode.SUPPORT) Color(0xFF10B981) else GemBorder),
+                            modifier = Modifier.weight(1f).testTag("select_support_mode")
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Favorite,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Tryb Wsparcia", fontWeight = FontWeight.Bold)
+                                }
+                                Text("Spokój, autorefleksja", fontSize = 10.sp, color = Color(0xFFCBD5E1))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Support Mode Memory Bank & Consent Controls
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = GemDarkSurfaceElevated),
+                border = BorderStroke(1.dp, GemBorder),
+                modifier = Modifier.testTag("support_memory_bank_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = null,
+                                tint = Color(0xFF34D399),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Pamięć Trybu Wsparcia",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        if (supportMemories.isNotEmpty()) {
+                            IconButton(
+                                onClick = { viewModel.clearAllSupportMemories() },
+                                modifier = Modifier.testTag("clear_support_memories_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = "Wyczyść pamięć wsparcia",
+                                    tint = Color(0xFFEF4444)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Informacje z Trybu Wsparcia są zapisywane wyłącznie za Twoją zgodą i nigdy nie są wyciągane w Trybie Swobodnym. Masz pełną kontrolę nad usunięciem każdego wpisu.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (supportMemories.isEmpty()) {
+                        Text(
+                            text = "Brak zapisanych wspomnień w Trybie Wsparcia. Pamięć jest pusta i bezpieczna.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF64748B),
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                         )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            supportMemories.forEach { mem ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(GemDarkBg, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = mem.fact,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.deleteLearnedFact(mem) },
+                                        modifier = Modifier.size(32.dp).testTag("delete_memory_${mem.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Usuń wpis",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -432,6 +534,63 @@ fun SettingsScreen(
                                 tint = Color(0xFFEF4444)
                             )
                         }
+                    }
+                }
+            }
+
+            // Room Local Database & Offline-First Storage
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = GemDarkSurfaceElevated),
+                border = BorderStroke(1.dp, GemBorder),
+                modifier = Modifier.testTag("room_storage_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = GemLivePulse,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Lokalna Pamięć Room (SQLite)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Wszystkie sesje rozmów, historia wiadomości oraz wpisy bazy wiedzy są bezpiecznie przechowywane lokalnie na urządzeniu w bazie Room.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFCBD5E1),
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Status: ",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Text(
+                            text = "Aktywna lokalnie • Pełna prywatność",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = GemCyan
+                        )
                     }
                 }
             }

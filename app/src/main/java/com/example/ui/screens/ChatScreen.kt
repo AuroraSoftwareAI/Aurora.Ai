@@ -4,17 +4,15 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,26 +20,37 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material3.CircularProgressIndicator
+import com.example.data.model.AuroraMode
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -49,8 +58,13 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,13 +83,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.ui.components.ChatBubble
+import com.example.ui.components.MessageList
 import com.example.ui.theme.GemAccentAmber
 import com.example.ui.theme.GemBorder
 import com.example.ui.theme.GemCyan
 import com.example.ui.theme.GemDarkBg
 import com.example.ui.theme.GemDarkSurface
 import com.example.ui.theme.GemDarkSurfaceElevated
+import com.example.ui.theme.GemDarkSurfaceVariant
 import com.example.ui.theme.GemViolet
 import com.example.ui.viewmodel.ChatViewModel
 
@@ -93,26 +108,20 @@ fun ChatScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val personaSettings by viewModel.personaSettings.collectAsState()
     val activeSources by viewModel.knowledgeSources.collectAsState()
+    val activeMode by viewModel.activeMode.collectAsState()
+    val sessions by viewModel.sessions.collectAsState()
+    val currentSessionId by viewModel.currentSessionId.collectAsState()
 
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Audio permission launcher
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            onOpenLiveVoice()
-        }
-    }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var showHistoryBottomSheet by remember { mutableStateOf(false) }
+    var autoReadTts by remember { mutableStateOf(personaSettings.speechFriendlyOutput) }
 
-    LaunchedEffect(messages.size, isGenerating) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
-    }
+    val currentSession = sessions.firstOrNull { it.sessionId == currentSessionId }
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let { msg ->
@@ -121,43 +130,32 @@ fun ChatScreen(
         }
     }
 
-    val quickPrompts = listOf(
-        "W czym możesz mi pomóc?",
-        "Podsumuj moje aktywne źródła wiedzy",
-        "Opowiedz coś dowcipnego",
-        "Co o mnie zapamiętałeś?",
-        "Jak oceniasz moje założenia projektowe?"
-    )
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = GemDarkBg,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
+                        Image(
+                            painter = painterResource(id = R.drawable.aurora_logo),
+                            contentDescription = "Aurora Logo",
                             modifier = Modifier
                                 .size(34.dp)
-                                .clip(CircleShape)
-                                .background(Brush.linearGradient(listOf(GemCyan, GemViolet))),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Gemini Logo",
-                                tint = Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                                .clip(CircleShape),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Aurora AI",
+                                text = currentSession?.title ?: "Aurora AI",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
@@ -165,7 +163,7 @@ fun ChatScreen(
                                     color = GemCyan.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = personaSettings.selectedModel,
+                                        text = "Aurora AI",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = GemCyan,
                                         fontSize = 10.sp,
@@ -186,6 +184,50 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // Mode Toggle Chip: Free Mode vs Support Mode
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (activeMode == AuroraMode.SUPPORT) Color(0xFF10B981).copy(alpha = 0.2f) else GemCyan.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (activeMode == AuroraMode.SUPPORT) Color(0xFF10B981) else GemCyan),
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .clickable { viewModel.toggleMode() }
+                            .testTag("mode_toggle_chip")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (activeMode == AuroraMode.SUPPORT) Icons.Default.Favorite else Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = if (activeMode == AuroraMode.SUPPORT) Color(0xFF34D399) else GemCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (activeMode == AuroraMode.SUPPORT) "Wsparcie" else "Swobodny",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (activeMode == AuroraMode.SUPPORT) Color(0xFF34D399) else GemCyan,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    // History Drawer button
+                    IconButton(
+                        onClick = { showHistoryBottomSheet = true },
+                        modifier = Modifier.testTag("history_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = "Historia rozmów",
+                            tint = GemCyan
+                        )
+                    }
+
+                    // New Session button
                     IconButton(
                         onClick = { viewModel.startNewSession() },
                         modifier = Modifier.testTag("new_chat_button")
@@ -197,23 +239,27 @@ fun ChatScreen(
                         )
                     }
 
-                    // Live Voice Mode button in top bar
+                    // Clear Chat button
+                    if (messages.isNotEmpty()) {
+                        IconButton(
+                            onClick = { showClearDialog = true },
+                            modifier = Modifier.testTag("clear_chat_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = "Wyczyść czat",
+                                tint = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+
+                    // Live Voice Mode button
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = GemCyan,
                         modifier = Modifier
                             .padding(end = 8.dp)
-                            .clickable {
-                                val hasAudio = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (hasAudio) {
-                                    onOpenLiveVoice()
-                                } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            }
+                            .clickable { onOpenLiveVoice() }
                             .testTag("open_live_voice_top_button")
                     ) {
                         Row(
@@ -248,118 +294,62 @@ fun ChatScreen(
                 .padding(innerPadding)
                 .imePadding()
         ) {
-            // Chat Message List
-            if (messages.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+            // Ambient banner when in Support Mode
+            if (activeMode == AuroraMode.SUPPORT) {
+                Surface(
+                    color = Color(0xFF064E3B).copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(Brush.radialGradient(listOf(GemCyan.copy(alpha = 0.3f), GemViolet.copy(alpha = 0.1f)))),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Icon(
-                                imageVector = Icons.Default.RecordVoiceOver,
+                                imageVector = Icons.Default.Favorite,
                                 contentDescription = null,
-                                tint = GemCyan,
-                                modifier = Modifier.size(36.dp)
+                                tint = Color(0xFF34D399),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Tryb Wsparcia • Bezpieczna, spokojna przestrzeń do refleksji",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFA7F3D0),
+                                fontSize = 11.sp
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Porozmawiajmy!",
-                            style = MaterialTheme.typography.titleLarge,
+                            text = "Zmień",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF6EE7B7),
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            modifier = Modifier
+                                .clickable { viewModel.toggleMode() }
+                                .padding(start = 4.dp)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Pisz lub włącz tryb Live Voice. Uczę się twojego stylu i korzystam z dodanych przez ciebie źródeł wiedzy.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(messages, key = { it.id }) { msg ->
-                        ChatBubble(
-                            message = msg,
-                            isSpeakingThis = speakingId == msg.id,
-                            onSpeakClick = { viewModel.toggleSpeakMessage(msg) }
-                        )
-                    }
-
-                    if (isGenerating) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = GemCyan
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "Aurora myśli i generuje odpowiedź...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = GemCyan,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
                     }
                 }
             }
+            // Enhanced Jetpack Compose Message List UI with scrolling mechanism
+            MessageList(
+                messages = messages,
+                isGenerating = isGenerating,
+                speakingId = speakingId,
+                onSpeakClick = { msg -> viewModel.toggleSpeakMessage(msg) },
+                onRegenerateClick = { viewModel.regenerateLastResponse() },
+                onDeleteMessage = { id -> viewModel.deleteMessage(id) },
+                onQuoteMessage = { quote ->
+                    inputText = if (inputText.isBlank()) quote else "$inputText\n$quote"
+                },
+                listState = listState,
+                modifier = Modifier.weight(1f)
+            )
 
-            // Quick suggestion chips
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(quickPrompts) { prompt ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.sendMessage(prompt) },
-                        label = { Text(prompt, fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = GemDarkSurfaceElevated,
-                            labelColor = Color(0xFFE2E8F0)
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            borderColor = GemBorder,
-                            enabled = true,
-                            selected = false
-                        )
-                    )
-                }
-            }
-
-            // Input Bar
+            // Bottom Input Bar
             Surface(
                 color = GemDarkSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, GemBorder),
@@ -371,12 +361,31 @@ fun ChatScreen(
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // TTS Auto-read toggle button
+                    IconButton(
+                        onClick = { autoReadTts = !autoReadTts },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(if (autoReadTts) GemCyan.copy(alpha = 0.2f) else Color.Transparent)
+                            .testTag("auto_read_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = if (autoReadTts) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDescription = if (autoReadTts) "Wyłącz czytanie głosem" else "Włącz czytanie głosem",
+                            tint = if (autoReadTts) GemCyan else Color(0xFF64748B),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
                         placeholder = {
                             Text(
-                                "Napisz do asystenta...",
+                                "Napisz do Aurory...",
                                 color = Color(0xFF64748B),
                                 fontSize = 14.sp
                             )
@@ -398,21 +407,11 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Quick voice input button
+                    // Quick voice input button (Live Voice launcher)
                     IconButton(
-                        onClick = {
-                            val hasAudio = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasAudio) {
-                                onOpenLiveVoice()
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                        },
+                        onClick = { onOpenLiveVoice() },
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                             .background(GemDarkSurfaceElevated)
                             .testTag("quick_mic_button")
@@ -431,13 +430,13 @@ fun ChatScreen(
                     IconButton(
                         onClick = {
                             if (inputText.isNotBlank()) {
-                                viewModel.sendMessage(inputText)
+                                viewModel.sendMessage(inputText, isVoice = autoReadTts)
                                 inputText = ""
                             }
                         },
                         enabled = inputText.isNotBlank() && !isGenerating,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
                             .background(
                                 if (inputText.isNotBlank() && !isGenerating) GemCyan else GemDarkSurfaceElevated
@@ -450,6 +449,185 @@ fun ChatScreen(
                             tint = if (inputText.isNotBlank() && !isGenerating) Color.Black else Color(0xFF64748B),
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirmation dialog for clearing chat history
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            containerColor = GemDarkSurface,
+            title = {
+                Text("Wyczyścić historię rozmowy?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Wszystkie wiadomości w tej sesji zostaną usunięte z lokalnej bazy danych.",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearChat()
+                        showClearDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    modifier = Modifier.testTag("confirm_clear_chat_button")
+                ) {
+                    Text("Wyczyść", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Anuluj", color = Color(0xFF94A3B8))
+                }
+            }
+        )
+    }
+
+    // Modal Bottom Sheet for Conversation History
+    if (showHistoryBottomSheet) {
+        val sheetState = rememberModalBottomSheetState()
+        val dateFormatter = remember { SimpleDateFormat("d MMM, HH:mm", Locale.forLanguageTag("pl-PL")) }
+
+        ModalBottomSheet(
+            onDismissRequest = { showHistoryBottomSheet = false },
+            sheetState = sheetState,
+            containerColor = GemDarkSurface,
+            contentColor = Color.White
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            tint = GemCyan,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Historia Rozmów (Room)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.startNewSession()
+                            showHistoryBottomSheet = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GemCyan, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Nowa rozmowa", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (sessions.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Brak zapisanych rozmów.",
+                            color = Color(0xFF64748B),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(sessions, key = { it.sessionId }) { session ->
+                            val isSelected = session.sessionId == currentSessionId
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) GemDarkSurfaceElevated else GemDarkSurfaceVariant.copy(alpha = 0.5f)
+                                ),
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, GemCyan) else null,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.switchSession(session.sessionId)
+                                        showHistoryBottomSheet = false
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = GemCyan,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+                                            Text(
+                                                text = session.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = dateFormatter.format(Date(session.lastMessageAt)),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF64748B),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { viewModel.deleteSession(session.sessionId) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Usuń rozmowę",
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
